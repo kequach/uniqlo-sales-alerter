@@ -223,6 +223,13 @@ class AppConfig(BaseModel):
     def product_page_base(self) -> str:
         return f"https://www.uniqlo.com/{self.uniqlo.country}/products"
 
+    _SEA_COUNTRIES: frozenset[str] = frozenset({"ph", "th", "sg"})
+
+    @property
+    def uses_sea_url_format(self) -> bool:
+        """Return True for SE-Asian stores that use colorCode/sizeCode URL params."""
+        return self.country_code in self._SEA_COUNTRIES
+
 
 def _deep_update_yaml(target: dict, source: dict) -> None:
     """Recursively merge *source* into *target*, preserving YAML comments.

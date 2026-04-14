@@ -100,6 +100,7 @@ class UniqloClient:
         self._config = config
         self._base_url = config.base_url
         self._base_url_v3 = config.base_url_v3
+        self._uses_sea = config.uses_sea_url_format
         self._headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "application/json",
@@ -221,34 +222,29 @@ class UniqloClient:
     async def fetch_sale_products(self) -> list[UniqloProduct]:
         """Fetch products flagged as on sale.
 
-        Queries four flag-based sources in parallel and merges/deduplicates
-        by product ID:
-
-        * v5 ``flagCodes=discount``    — European and most Asia-Pacific stores
-        * v5 ``flagCodes=limitedOffer`` — Philippines, Malaysia, Australia …
-        * v3 ``flagCodes=discount``    — Thailand, Philippines (v3-only stores)
-        * v3 ``flagCodes=limitedOffer`` — Thailand …
+        SEA stores (PH/TH/SG) use the v3 API only; all other stores use v5 only.
+        Both ``discount`` and ``limitedOffer`` flag codes are queried in parallel
+        and deduplicated by product ID.
 
         When ``sale_paths`` is configured (e.g. for Singapore where the sale
         catalogue is organised into category paths rather than flag codes),
-        products from those paths are fetched in addition and merged in.
+        products from those paths are fetched via the same API version and merged in.
         """
-        tasks = [
-            self._fetch_all(extra_params={"flagCodes": "discount"}),
-            self._fetch_all(extra_params={"flagCodes": "limitedOffer"}),
-            self._fetch_all_v3(extra_params={"flagCodes": "discount"}),
-            self._fetch_all_v3(extra_params={"flagCodes": "limitedOffer"}),
+        fetch = self._fetch_all_v3 if self._uses_sea else self._fetch_all
+        tasks: list = [
+            fetch(extra_params={"flagCodes": "discount"}),
+            fetch(extra_params={"flagCodes": "limitedOffer"}),
         ]
         for path_id in self._config.uniqlo.sale_paths:
-            tasks.append(self._fetch_all(extra_params={"path": path_id}))
+            tasks.append(fetch(extra_params={"path": path_id}))
 
         results = await asyncio.gather(*tasks)
-        v5_disc, v5_ltd, v3_disc, v3_ltd = results[:4]
-        path_results = results[4:]
+        disc, ltd = results[0], results[1]
+        path_results = results[2:]
 
         seen: set[str] = set()
         merged: list[UniqloProduct] = []
-        for product in [*v5_disc, *v5_ltd, *v3_disc, *v3_ltd]:
+        for product in [*disc, *ltd]:
             if product.product_id not in seen:
                 seen.add(product.product_id)
                 merged.append(product)
@@ -261,17 +257,17 @@ class UniqloClient:
                     merged.append(product)
                     path_count += 1
 
+        api = "v3" if self._uses_sea else "v5"
         logger.info(
-            "Fetched v5(%d disc + %d ltd) + v3(%d disc + %d ltd) "
-            "+ %d from sale_paths = %d unique sale candidates",
-            len(v5_disc), len(v5_ltd), len(v3_disc), len(v3_ltd),
-            path_count, len(merged),
+            "Fetched %s(%d disc + %d ltd) + %d from sale_paths = %d unique sale candidates",
+            api, len(disc), len(ltd), path_count, len(merged),
         )
         return merged
 
     async def fetch_all_products(self) -> list[UniqloProduct]:
         """Fetch every product from the catalogue, handling pagination."""
-        return await self._fetch_all()
+        fetch = self._fetch_all_v3 if self._uses_sea else self._fetch_all
+        return await fetch()
 
     async def fetch_products_by_ids(
         self, product_ids: list[str],
@@ -279,9 +275,31 @@ class UniqloClient:
         """Fetch specific products by ID, regardless of sale status."""
         if not product_ids:
             return []
-        return await self._fetch_all(
-            extra_params={"productIds": ",".join(product_ids)},
-        )
+        fetch = self._fetch_all_v3 if self._uses_sea else self._fetch_all
+        return await fetch(extra_params={"productIds": ",".join(product_ids)})
+
+    async def fetch_product_detail_v3(self, product_id: str) -> list[dict]:
+        """Fetch L2 variants with embedded stock for SEA stores (v3 single-product endpoint).
+
+        SEA stores (PH, TH, SG) use the v3 product detail endpoint
+        instead of separate ``/price-groups/{pg}`` and ``/price-groups/{pg}/stock``
+        endpoints.  Stock status is embedded inside each L2 entry as ``l2.stock``.
+
+        Returns the raw ``l2s`` list from the response, or ``[]`` on failure.
+        """
+        url = f"{self._base_url_v3}/{product_id}"
+        try:
+            resp = await self._request(
+                url,
+                params={"httpFailure": "true"},
+                label=f"v3-detail({product_id})",
+            )
+            data = resp.json()
+            items = data.get("result", {}).get("items", [])
+            return items[0].get("l2s", []) if items else []
+        except Exception:
+            logger.exception("Failed to fetch v3 detail for %s", product_id)
+            return []
 
     async def fetch_product_l2s(
         self, product_id: str, price_group: str,

@@ -118,8 +118,14 @@ class SaleChecker:
         for url in item.product_urls:
             parsed = urlparse(url)
             params = parse_qs(parsed.query)
-            color = params.get("colorDisplayCode", [""])[0]
-            size = params.get("sizeDisplayCode", [""])[0]
+            color = (
+                params.get("colorDisplayCode", [""])[0]
+                or params.get("colorCode", [""])[0]
+            )
+            size = (
+                params.get("sizeDisplayCode", [""])[0]
+                or params.get("sizeCode", [""])[0]
+            )
             if color and size:
                 keys.add(f"{item.product_id}:{color}:{size}:{suffix}")
         if not keys:
@@ -213,8 +219,14 @@ class SaleChecker:
             variant = _WatchedVariant(
                 product_id=pid,
                 url=url,
-                color=params.get("colorDisplayCode", [""])[0],
-                size_code=params.get("sizeDisplayCode", [""])[0],
+                color=(
+                    params.get("colorDisplayCode", [""])[0]
+                    or params.get("colorCode", [""])[0]
+                ),
+                size_code=(
+                    params.get("sizeDisplayCode", [""])[0]
+                    or params.get("sizeCode", [""])[0]
+                ),
             )
             by_product.setdefault(pid.upper(), []).append(variant)
         return set(by_product.keys()), by_product
@@ -358,7 +370,8 @@ class SaleChecker:
     ) -> list[str]:
         """Build a direct URL for each matching size variant.
 
-        Format: ``…/products/{id}/{priceGroup}?colorDisplayCode=…&sizeDisplayCode=…``
+        Standard format: ``…/products/{id}/{priceGroup}?colorDisplayCode=…&sizeDisplayCode=…``
+        SEA format:      ``…/products/{id}?colorCode=…&sizeCode=…``
 
         Uses the representative color as a preliminary default; the real
         in-stock colour is resolved later by ``_verify_stock``.
@@ -367,9 +380,13 @@ class SaleChecker:
         pid = product.product_id
         pg = product.price_group
         color = product.representative_color_display_code
+        uses_sea = self._config.uses_sea_url_format
         urls: list[str] = []
         for s in sizes:
-            url = f"{base}/{pid}/{pg}?colorDisplayCode={color}&sizeDisplayCode={s.display_code}"
+            if uses_sea:
+                url = f"{base}/{pid}?colorCode={color}&sizeCode={s.display_code}"
+            else:
+                url = f"{base}/{pid}/{pg}?colorDisplayCode={color}&sizeDisplayCode={s.display_code}"
             urls.append(url)
         return urls
 
@@ -411,23 +428,46 @@ class SaleChecker:
 
     async def _verify_one(self, item: SaleItem) -> SaleItem | None:
         """Verify stock for a single SaleItem; returns *None* to drop it."""
-        l2s, stock_map = await asyncio.gather(
-            self._client.fetch_product_l2s(item.product_id, item.price_group),
-            self._client.fetch_variant_stock(item.product_id, item.price_group),
-        )
+        uses_sea = self._config.uses_sea_url_format
 
-        if not l2s or not stock_map:
-            return item  # keep listing data when stock API is unavailable
+        if uses_sea:
+            # SEA stores (PH/TH/SG/…): v3 product detail endpoint returns
+            # each L2 with stock embedded directly in l2.stock.
+            l2s = await self._client.fetch_product_detail_v3(item.product_id)
+            if not l2s:
+                return item  # keep listing data when API unavailable
+            stock_map: dict[str, dict] = {
+                l2.get("l2Id", ""): l2.get("stock", {}) for l2 in l2s
+            }
+            # Pre-build displayCode → full code maps for URL construction.
+            color_dc_to_code = {
+                l2.get("color", {}).get("displayCode", ""): l2.get("color", {}).get("code", "")
+                for l2 in l2s
+            }
+            size_dc_to_code = {
+                l2.get("size", {}).get("displayCode", ""): l2.get("size", {}).get("code", "")
+                for l2 in l2s
+            }
+        else:
+            l2s, stock_map = await asyncio.gather(
+                self._client.fetch_product_l2s(item.product_id, item.price_group),
+                self._client.fetch_variant_stock(item.product_id, item.price_group),
+            )
+            if not l2s or not stock_map:
+                return item  # keep listing data when stock API is unavailable
 
         wanted = {s.upper() for s in item.available_sizes}
         base = self._config.product_page_base
 
-        # Build a size-name → preferred-color map from watched URLs.
+        # Build a size-code → size-name map from the L2 data, keyed by both
+        # displayCode and full code so watched-URL lookups work for both formats.
         watched = self._watched_by_product.get(item.product_id.upper(), [])
         code_to_name: dict[str, str] = {}
         for l2 in l2s:
             sz = l2.get("size", {})
-            code_to_name[sz.get("displayCode", "")] = sz.get("name", "")
+            name = sz.get("name") or sz.get("sizeName", "")
+            for key in filter(None, [sz.get("displayCode"), sz.get("code")]):
+                code_to_name[key] = name
         preferred_colors: dict[str, str] = {}
         for wv in watched:
             sn = code_to_name.get(wv.size_code, "").upper()
@@ -449,10 +489,17 @@ class SaleChecker:
             if best is not None:
                 color_dc, size_dc = best
                 verified_sizes.append(size_name)
-                url = (
-                    f"{base}/{item.product_id}/{item.price_group}"
-                    f"?colorDisplayCode={color_dc}&sizeDisplayCode={size_dc}"
-                )
+                if uses_sea:
+                    # PH/TH/SG URLs use the full variant code (e.g. COL09, SMA004),
+                    # not the numeric displayCode.
+                    color_code = color_dc_to_code.get(color_dc, color_dc)
+                    size_code = size_dc_to_code.get(size_dc, size_dc)
+                    url = f"{base}/{item.product_id}?colorCode={color_code}&sizeCode={size_code}"
+                else:
+                    url = (
+                        f"{base}/{item.product_id}/{item.price_group}"
+                        f"?colorDisplayCode={color_dc}&sizeDisplayCode={size_dc}"
+                    )
                 verified_urls.append(url)
 
         if not verified_sizes:
@@ -481,14 +528,20 @@ class SaleChecker:
         candidates: list[tuple[int, str, str]] = []
         for l2 in l2s:
             sz = l2.get("size", {})
-            if sz.get("name", "").upper() != size_name.upper():
+            # SEA stores use "sizeName"; standard stores use "name"
+            name = sz.get("name") or sz.get("sizeName", "")
+            if name.upper() != size_name.upper():
                 continue
             l2id = l2.get("l2Id", "")
             stock = stock_map.get(l2id, {})
             if stock.get("statusCode") in _IN_STOCK_STATUSES:
                 qty = stock.get("quantity", 0)
-                color_dc = l2.get("color", {}).get("displayCode", "")
-                size_dc = sz.get("displayCode", "")
+                # SEA stores use "colorCode"; standard stores use "displayCode"
+                color_dc = (
+                    l2.get("color", {}).get("displayCode")
+                    or l2.get("color", {}).get("colorCode", "")
+                )
+                size_dc = sz.get("displayCode") or sz.get("sizeCode", "")
                 candidates.append((qty, color_dc, size_dc))
 
         if not candidates:
