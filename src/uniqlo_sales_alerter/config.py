@@ -40,9 +40,9 @@ def _resolve_env_vars(value: object) -> object:
 
         return _ENV_VAR_RE.sub(_replacer, value)
     if isinstance(value, dict):
-        return {k: _resolve_env_vars(v) for k, v in value.items()}
+        return {key: _resolve_env_vars(val) for key, val in value.items()}
     if isinstance(value, list):
-        return [_resolve_env_vars(v) for v in value]
+        return [_resolve_env_vars(item) for item in value]
     return value
 
 
@@ -213,7 +213,7 @@ def parse_uniqlo_url(url: str) -> dict[str, str]:
     from urllib.parse import parse_qs, urlparse
 
     parsed = urlparse(url)
-    parts = [p for p in parsed.path.split("/") if p]
+    parts = [segment for segment in parsed.path.split("/") if segment]
     pid = pg = ""
     for i, seg in enumerate(parts):
         if seg == "products" and i + 1 < len(parts):
@@ -293,7 +293,7 @@ class FilterConfig(BaseModel):
     def _coerce_ignored(cls, v: Any) -> Any:
         """Allow env-var shorthand: plain ID strings become objects."""
         if isinstance(v, list):
-            return [{"id": x} if isinstance(x, str) else x for x in v]
+            return [{"id": entry} if isinstance(entry, str) else entry for entry in v]
         return v
 
     @field_validator("ignored_keywords", mode="before")
@@ -455,7 +455,7 @@ class AppConfig(BaseModel):
 
     @model_validator(mode="after")
     def _normalise_gender(self) -> "AppConfig":
-        self.filters.gender = [g.upper() for g in self.filters.gender]
+        self.filters.gender = [gender.upper() for gender in self.filters.gender]
         return self
 
     @property
@@ -481,8 +481,8 @@ class AppConfig(BaseModel):
 
     @property
     def client_id(self) -> str:
-        cc = self._CLIENT_ID_COUNTRY_OVERRIDES.get(self.country_code, self.country_code)
-        return f"uq.{cc}.web-spa"
+        country = self._CLIENT_ID_COUNTRY_OVERRIDES.get(self.country_code, self.country_code)
+        return f"uq.{country}.web-spa"
 
     @property
     def product_page_base(self) -> str:
@@ -585,11 +585,11 @@ def _deep_update_yaml(target: dict, source: dict) -> None:
 
 def _write_yaml(data: dict[str, Any], path: Path) -> None:
     """Write config to YAML, preserving existing comments when possible."""
-    rt = YAML()
-    rt.preserve_quotes = True
+    yaml_writer = YAML()
+    yaml_writer.preserve_quotes = True
 
     if path.exists():
-        existing = rt.load(path.read_text(encoding="utf-8"))
+        existing = yaml_writer.load(path.read_text(encoding="utf-8"))
         if isinstance(existing, dict):
             _deep_update_yaml(existing, data)
             to_write = existing
@@ -598,8 +598,8 @@ def _write_yaml(data: dict[str, Any], path: Path) -> None:
     else:
         to_write = data
 
-    with path.open("w", encoding="utf-8") as fh:
-        rt.dump(to_write, fh)
+    with path.open("w", encoding="utf-8") as output:
+        yaml_writer.dump(to_write, output)
     logger.debug("Configuration written to %s", path)
 
 

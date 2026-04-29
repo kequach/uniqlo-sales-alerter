@@ -218,7 +218,7 @@ class UniqloProduct(BaseModel, populate_by_name=True):
 
     @property
     def size_names(self) -> list[str]:
-        return [s.name for s in self.sizes]
+        return [size.name for size in self.sizes]
 
     @property
     def currency_symbol(self) -> str:

@@ -277,7 +277,7 @@ class UniqloClient:
                     count += 1
             counts[label] = count
 
-        parts = " + ".join(f"{v} {k}" for k, v in counts.items())
+        parts = " + ".join(f"{count} {source}" for source, count in counts.items())
         logger.info(
             "Fetched %s = %d unique sale candidates", parts, len(merged),
         )

@@ -44,12 +44,12 @@ class FormattedPrice:
 
 def format_price(deal: SaleItem) -> FormattedPrice:
     """Derive display-ready price fields from *deal*."""
-    sym = deal.currency_symbol
-    sale = f"{sym}{deal.sale_price:.2f}"
+    symbol = deal.currency_symbol
+    sale = f"{symbol}{deal.sale_price:.2f}"
     if deal.has_known_discount and deal.discount_percentage > 0:
         return FormattedPrice(
             sale_text=sale,
-            original_text=f"{sym}{deal.original_price:.2f}",
+            original_text=f"{symbol}{deal.original_price:.2f}",
             discount_label=f"-{deal.discount_percentage:.0f}%",
             show_strikethrough=True,
             show_sale_badge=False,
@@ -167,7 +167,7 @@ def resolve_color_image(
 
 def unique_colors(deal: SaleItem) -> list[str]:
     """Deduplicated, non-empty colour names preserving insertion order."""
-    return list(dict.fromkeys(cn for cn in deal.color_names if cn))
+    return list(dict.fromkeys(name for name in deal.color_names if name))
 
 
 @runtime_checkable
@@ -203,10 +203,10 @@ class DealActions:
             if deal.is_watched else ""
         )
         self.watch_urls = []
-        for sz, prod_url in zip(deal.available_sizes, deal.product_urls):
-            url_enc = quote(prod_url, safe="")
-            watch = (
+        for size_label, product_url in zip(deal.available_sizes, deal.product_urls):
+            encoded_url = quote(product_url, safe="")
+            watch_action = (
                 f"{server_url}/actions/watch/{deal.product_id}"
-                f"?name={name_enc}&url={url_enc}"
+                f"?name={name_enc}&url={encoded_url}"
             )
-            self.watch_urls.append((sz, watch))
+            self.watch_urls.append((size_label, watch_action))

@@ -43,35 +43,35 @@ class NotificationDispatcher:
 
     @staticmethod
     def _build_notifiers(config: AppConfig) -> list[Notifier]:
-        ncfg = config.notifications
-        channels = ncfg.channels
+        notify_cfg = config.notifications
+        channels = notify_cfg.channels
         notifiers: list[Notifier] = []
 
         server_url = config.full_server_url
-        threshold = ncfg.low_stock_threshold
+        threshold = notify_cfg.low_stock_threshold
         keywords = config.filters.ignored_keywords
 
-        tg = TelegramNotifier(
+        telegram = TelegramNotifier(
             channels.telegram,
             server_url=server_url,
             low_stock_threshold=threshold,
             ignored_keywords=keywords,
         )
-        notifiers.append(tg)
-        logger.debug("Registered TelegramNotifier (enabled=%s)", tg.is_enabled())
+        notifiers.append(telegram)
+        logger.debug("Registered TelegramNotifier (enabled=%s)", telegram.is_enabled())
 
-        em = EmailNotifier(
+        email = EmailNotifier(
             channels.email,
             server_url=server_url,
             low_stock_threshold=threshold,
             ignored_keywords=keywords,
         )
-        notifiers.append(em)
-        logger.debug("Registered EmailNotifier (enabled=%s)", em.is_enabled())
-        if not em.is_enabled():
+        notifiers.append(email)
+        logger.debug("Registered EmailNotifier (enabled=%s)", email.is_enabled())
+        if not email.is_enabled():
             _log_email_disabled(channels.email)
 
-        if ncfg.preview_cli:
+        if notify_cfg.preview_cli:
             notifiers.append(ConsoleNotifier(
                 enabled=True,
                 server_url=server_url,
@@ -79,7 +79,7 @@ class NotificationDispatcher:
                 ignored_keywords=keywords,
             ))
             logger.debug("Registered ConsoleNotifier (preview_cli)")
-        if ncfg.preview_html:
+        if notify_cfg.preview_html:
             notifiers.append(HtmlReportNotifier(
                 enabled=True,
                 server_url=server_url,

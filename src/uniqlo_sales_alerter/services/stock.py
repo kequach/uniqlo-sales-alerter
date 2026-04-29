@@ -52,10 +52,10 @@ class StockVerifier:
             return items
 
         unreliable_stock = self._config.capabilities.stock_api == "none"
-        sem = asyncio.Semaphore(_MAX_STOCK_CONCURRENCY)
+        concurrency = asyncio.Semaphore(_MAX_STOCK_CONCURRENCY)
 
         async def _limited(item: SaleItem) -> SaleItem | None:
-            async with sem:
+            async with concurrency:
                 if unreliable_stock:
                     return await self._enrich_from_l2(item)
                 return await self._verify_one(item)
@@ -150,13 +150,13 @@ class StockVerifier:
             return {}
         code_to_name: dict[str, str] = {}
         for l2 in l2s:
-            sz = l2.get("size", {})
-            code_to_name[sz.get("displayCode", "")] = sz.get("name", "")
+            size_data = l2.get("size", {})
+            code_to_name[size_data.get("displayCode", "")] = size_data.get("name", "")
         preferred: dict[str, str] = {}
         for wv in watched:
-            sn = code_to_name.get(wv.size, "").upper()
-            if sn and wv.color:
-                preferred[sn] = wv.color
+            size_name_upper = code_to_name.get(wv.size, "").upper()
+            if size_name_upper and wv.color:
+                preferred[size_name_upper] = wv.color
         return preferred
 
     # ------------------------------------------------------------------
@@ -200,33 +200,33 @@ def pick_in_stock_variant(
     """
     candidates: list[StockVariant] = []
     for l2 in l2s:
-        sz = l2.get("size", {})
-        if sz.get("name", "").upper() != size_name.upper():
+        size_data = l2.get("size", {})
+        if size_data.get("name", "").upper() != size_name.upper():
             continue
-        l2id = l2.get("l2Id", "")
-        stock = stock_map.get(l2id, {})
+        l2_id = l2.get("l2Id", "")
+        stock = stock_map.get(l2_id, {})
         status = stock.get("statusCode", "")
         if status in _IN_STOCK_STATUSES:
-            color_obj = l2.get("color", {})
+            color_data = l2.get("color", {})
             candidates.append(StockVariant(
-                color_display_code=color_obj.get("displayCode", ""),
-                size_display_code=sz.get("displayCode", ""),
-                color_name=color_obj.get("name", ""),
+                color_display_code=color_data.get("displayCode", ""),
+                size_display_code=size_data.get("displayCode", ""),
+                color_name=color_data.get("name", ""),
                 quantity=stock.get("quantity", 0),
                 status=status,
-                color_code=color_obj.get("code", ""),
-                size_code=sz.get("code", ""),
+                color_code=color_data.get("code", ""),
+                size_code=size_data.get("code", ""),
             ))
 
     if not candidates:
         return None
 
     if preferred_color:
-        for sv in candidates:
-            if sv.color_display_code == preferred_color:
-                return sv
+        for candidate in candidates:
+            if candidate.color_display_code == preferred_color:
+                return candidate
 
-    return max(candidates, key=lambda sv: sv.quantity)
+    return max(candidates, key=lambda variant: variant.quantity)
 
 
 def rebuild_from_l2(
@@ -243,9 +243,9 @@ def rebuild_from_l2(
     """
     l2_by_size: dict[str, dict] = {}
     for l2 in l2s:
-        sz_name = l2.get("size", {}).get("name", "").upper()
-        if sz_name and sz_name not in l2_by_size:
-            l2_by_size[sz_name] = l2
+        upper_name = l2.get("size", {}).get("name", "").upper()
+        if upper_name and upper_name not in l2_by_size:
+            l2_by_size[upper_name] = l2
 
     rebuilt_sizes: list[str] = []
     rebuilt_urls: list[str] = []
@@ -253,19 +253,19 @@ def rebuild_from_l2(
     for size_name in item.available_sizes:
         l2 = l2_by_size.get(size_name.upper())
         if l2:
-            color_obj = l2.get("color", {})
-            color_name = color_obj.get("name", "")
+            color_data = l2.get("color", {})
+            color_name = color_data.get("name", "")
             if url_style == "code":
-                c_val = color_obj.get("code", "")
-                s_val = l2.get("size", {}).get("code", "")
+                color_param = color_data.get("code", "")
+                size_param = l2.get("size", {}).get("code", "")
             else:
-                c_val = color_obj.get("displayCode", "")
-                s_val = l2.get("size", {}).get("displayCode", "")
+                color_param = color_data.get("displayCode", "")
+                size_param = l2.get("size", {}).get("displayCode", "")
             rebuilt_sizes.append(size_name)
             rebuilt_urls.append(
                 build_product_url(
                     base, item.product_id, item.price_group,
-                    c_val, s_val, url_style=url_style,
+                    color_param, size_param, url_style=url_style,
                 ),
             )
             rebuilt_colors.append(color_name)

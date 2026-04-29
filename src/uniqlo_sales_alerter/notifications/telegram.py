@@ -24,22 +24,22 @@ logger = logging.getLogger(__name__)
 
 def _escape_md(text: str) -> str:
     """Escape characters reserved by Telegram MarkdownV2."""
-    for ch in r"\_*[]()~`>#+-=|{}.!":
-        text = text.replace(ch, f"\\{ch}")
+    for char in r"\_*[]()~`>#+-=|{}.!":
+        text = text.replace(char, f"\\{char}")
     return text
 
 
 def _size_link(
-    sz: str, url: str, qty: int, status: str, threshold: int,
+    size_label: str, url: str, qty: int, status: str, threshold: int,
 ) -> str:
     """Render a single size as a MarkdownV2 link with optional stock suffix."""
     stock_text, is_low = format_stock_suffix(qty, status, threshold)
     if not stock_text:
-        label = _escape_md(sz)
+        label = _escape_md(size_label)
     elif is_low:
-        label = _escape_md(f"{sz} · {stock_text} ⚠")
+        label = _escape_md(f"{size_label} · {stock_text} ⚠")
     else:
-        label = _escape_md(f"{sz} · {stock_text}")
+        label = _escape_md(f"{size_label} · {stock_text}")
     return f"[{label}]({url})"
 
 
@@ -51,17 +51,17 @@ def _build_caption(
 ) -> str:
     """Build a MarkdownV2 caption for a single deal."""
     name = _escape_md(deal.name)
-    fp = format_price(deal)
+    price = format_price(deal)
 
-    if fp.show_strikethrough:
-        orig_md = _escape_md(fp.original_text)
-        sale_md = _escape_md(fp.sale_text)
-        pct_md = _escape_md(fp.discount_label)
-        price_line = f"~{orig_md}~ ➜ {sale_md} \\({pct_md}\\)"
-    elif fp.show_sale_badge:
-        price_line = f"{_escape_md(fp.sale_text)} ✦ {_escape_md(fp.discount_label)}"
+    if price.show_strikethrough:
+        original_md = _escape_md(price.original_text)
+        sale_price_md = _escape_md(price.sale_text)
+        discount_md = _escape_md(price.discount_label)
+        price_line = f"~{original_md}~ ➜ {sale_price_md} \\({discount_md}\\)"
+    elif price.show_sale_badge:
+        price_line = f"{_escape_md(price.sale_text)} ✦ {_escape_md(price.discount_label)}"
     else:
-        price_line = _escape_md(fp.sale_text)
+        price_line = _escape_md(price.sale_text)
 
     colors = unique_colors(deal)
     color_line = (
@@ -74,20 +74,22 @@ def _build_caption(
 
     size_links = " \\| ".join(
         _size_link(
-            sz, url,
+            size_label, url,
             deal.variant_at(i).quantity,
             deal.variant_at(i).status,
             low_stock_threshold,
         )
-        for i, (sz, url) in enumerate(zip(deal.available_sizes, deal.product_urls))
+        for i, (size_label, url) in enumerate(
+            zip(deal.available_sizes, deal.product_urls),
+        )
     )
 
     footer = f"[Uniqlo Sales Alerter]({PROJECT_URL})"
     if server_url:
         footer += f" · [Settings]({server_url}/settings)"
     if ignored_keywords:
-        kw_text = _escape_md(", ".join(ignored_keywords))
-        footer += f"\nIgnored keywords: {kw_text}"
+        keywords_text = _escape_md(", ".join(ignored_keywords))
+        footer += f"\nIgnored keywords: {keywords_text}"
 
     lines = [
         f"*{name}*",
@@ -155,9 +157,9 @@ class TelegramNotifier:
                 else:
                     rows = [
                         [InlineKeyboardButton(
-                            f"Watch {sz}", url=wurl,
+                            f"Watch {size_label}", url=watch_url,
                         )]
-                        for sz, wurl in actions.watch_urls
+                        for size_label, watch_url in actions.watch_urls
                     ]
                 rows.append([InlineKeyboardButton(
                     "Ignore", url=actions.ignore_url,

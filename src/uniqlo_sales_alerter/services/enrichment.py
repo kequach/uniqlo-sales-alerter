@@ -29,9 +29,9 @@ def _find_color_name(l2s: list[dict], color_code: str) -> str:
 
 def _find_size_name(product: UniqloProduct, size_code: str) -> str:
     """Look up the human-readable size name from a product's size list."""
-    for sz in product.sizes:
-        if sz.display_code == size_code:
-            return sz.name
+    for size_entry in product.sizes:
+        if size_entry.display_code == size_code:
+            return size_entry.name
     return ""
 
 
@@ -51,15 +51,15 @@ async def enrich_config(config: AppConfig, client: UniqloClient) -> bool:
         )
     ]
     incomplete_ignored = [
-        ip for ip in config.filters.ignored_products
-        if ip.id and (not ip.name or not ip.url)
+        ignored for ignored in config.filters.ignored_products
+        if ignored.id and (not ignored.name or not ignored.url)
     ]
     if not incomplete_variants and not incomplete_ignored:
         return False
 
     all_ids = list(
         {wv.id for wv in incomplete_variants}
-        | {ip.id for ip in incomplete_ignored}
+        | {ignored.id for ignored in incomplete_ignored}
     )
     products = await client.fetch_products_by_ids(all_ids)
     product_by_id = {p.product_id.upper(): p for p in products}
@@ -75,21 +75,21 @@ async def enrich_config(config: AppConfig, client: UniqloClient) -> bool:
 
     changed = False
 
-    for ip in incomplete_ignored:
-        prod = product_by_id.get(ip.id.upper())
-        if prod and not ip.name:
-            ip.name = prod.name
+    for ignored in incomplete_ignored:
+        product = product_by_id.get(ignored.id.upper())
+        if product and not ignored.name:
+            ignored.name = product.name
             changed = True
-        if not ip.url:
-            pg = prod.price_group if prod else "00"
-            ip.url = build_product_url(base, ip.id, pg)
+        if not ignored.url:
+            pg = product.price_group if product else "00"
+            ignored.url = build_product_url(base, ignored.id, pg)
             changed = True
 
     for wv in incomplete_variants:
-        prod = product_by_id.get(wv.id.upper())
+        product = product_by_id.get(wv.id.upper())
 
-        if prod and not wv.name:
-            wv.name = prod.name
+        if product and not wv.name:
+            wv.name = product.name
             changed = True
 
         if not wv.url:
@@ -98,8 +98,8 @@ async def enrich_config(config: AppConfig, client: UniqloClient) -> bool:
             )
             changed = True
 
-        if not wv.size_name and prod:
-            wv.size_name = _find_size_name(prod, wv.size)
+        if not wv.size_name and product:
+            wv.size_name = _find_size_name(product, wv.size)
             changed = changed or bool(wv.size_name)
 
         if not wv.color_name:

@@ -99,5 +99,5 @@ class SeenVariantStore:
 
     def _variant_is_low(self, item: SaleItem, idx: int) -> bool:
         """True when the variant at *idx* is currently in low-stock state."""
-        v = item.variant_at(idx)
-        return is_low_stock(v.quantity, v.status, self._low_stock_threshold)
+        variant = item.variant_at(idx)
+        return is_low_stock(variant.quantity, variant.status, self._low_stock_threshold)

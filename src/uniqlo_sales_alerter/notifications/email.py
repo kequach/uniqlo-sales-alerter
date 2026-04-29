@@ -53,10 +53,10 @@ def _expand_to_variants(deal: SaleItem) -> list[SaleItem]:
 
 
 def _size_link_html(
-    sz: str, url: str, qty: int, status: str, threshold: int,
+    size_label: str, url: str, qty: int, status: str, threshold: int,
 ) -> str:
     """Render a size link with an optional stock-suffix span."""
-    safe_sz = html_mod.escape(sz)
+    safe_sz = html_mod.escape(size_label)
     anchor = f'<a href="{url}">{safe_sz}</a>'
     stock_text, is_low = format_stock_suffix(qty, status, threshold)
     if not stock_text:
@@ -106,13 +106,13 @@ def _build_html(
         )
         size_links = " &middot; ".join(
             _size_link_html(
-                sz, url,
+                size_label, url,
                 variant.variant_at(i).quantity,
                 variant.variant_at(i).status,
                 low_stock_threshold,
             )
-            for i, (sz, url) in enumerate(
-                zip(variant.available_sizes, variant.product_urls)
+            for i, (size_label, url) in enumerate(
+                zip(variant.available_sizes, variant.product_urls),
             )
         ) or ", ".join(variant.available_sizes)
         rating_text = format_rating(variant)
@@ -120,25 +120,25 @@ def _build_html(
             f'<small style="color:#888;">{html_mod.escape(rating_text)}</small><br/>'
             if rating_text else ""
         )
-        fp = format_price(variant)
-        if fp.show_strikethrough:
+        price = format_price(variant)
+        if price.show_strikethrough:
             price_html = (
                 f'<span style="text-decoration:line-through;color:#999;">'
-                f'{fp.original_text}</span> &rarr; '
+                f'{price.original_text}</span> &rarr; '
                 f'<span style="color:#c0392b;font-weight:bold;">'
-                f'{fp.sale_text}</span> '
-                f'<span style="color:#27ae60;">({fp.discount_label})</span>'
+                f'{price.sale_text}</span> '
+                f'<span style="color:#27ae60;">({price.discount_label})</span>'
             )
-        elif fp.show_sale_badge:
+        elif price.show_sale_badge:
             price_html = (
                 f'<span style="color:#c0392b;font-weight:bold;">'
-                f'{fp.sale_text}</span> '
+                f'{price.sale_text}</span> '
                 f'<span style="color:#27ae60;font-weight:bold;">'
-                f'{fp.discount_label}</span>'
+                f'{price.discount_label}</span>'
             )
         else:
             price_html = (
-                f'<span style="font-weight:bold;">{fp.sale_text}</span>'
+                f'<span style="font-weight:bold;">{price.sale_text}</span>'
             )
         actions = DealActions(variant, server_url)
         action_html = ""
@@ -184,7 +184,7 @@ def _build_html(
     )
     kw_line = ""
     if ignored_keywords:
-        escaped = ", ".join(html_mod.escape(k) for k in ignored_keywords)
+        escaped = ", ".join(html_mod.escape(keyword) for keyword in ignored_keywords)
         kw_line = f"<br/>Ignored keywords: {escaped}"
 
     return f"""
@@ -236,10 +236,10 @@ class EmailNotifier:
             logger.error(msg)
             raise RuntimeError(msg)
 
-        cfg = self._config
+        smtp_cfg = self._config
 
-        implicit_tls = cfg.use_tls and cfg.smtp_port == 465
-        starttls = cfg.use_tls and not implicit_tls
+        implicit_tls = smtp_cfg.use_tls and smtp_cfg.smtp_port == 465
+        starttls = smtp_cfg.use_tls and not implicit_tls
         tls_mode = (
             "implicit TLS" if implicit_tls
             else "STARTTLS" if starttls
@@ -248,14 +248,14 @@ class EmailNotifier:
 
         logger.debug(
             "Sending %d deal(s) via %s:%d (%s) to %s",
-            len(deals), cfg.smtp_host, cfg.smtp_port, tls_mode,
-            ", ".join(cfg.to_addresses),
+            len(deals), smtp_cfg.smtp_host, smtp_cfg.smtp_port, tls_mode,
+            ", ".join(smtp_cfg.to_addresses),
         )
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"Uniqlo Sale Alert — {len(deals)} deal(s)"
-        msg["From"] = cfg.from_address
-        msg["To"] = ", ".join(cfg.to_addresses)
+        msg["From"] = smtp_cfg.from_address
+        msg["To"] = ", ".join(smtp_cfg.to_addresses)
         msg.attach(MIMEText(
             _build_html(
                 deals,
@@ -269,48 +269,48 @@ class EmailNotifier:
         try:
             await aiosmtplib.send(
                 msg,
-                hostname=cfg.smtp_host,
-                port=cfg.smtp_port,
+                hostname=smtp_cfg.smtp_host,
+                port=smtp_cfg.smtp_port,
                 use_tls=implicit_tls,
                 start_tls=starttls,
-                username=cfg.smtp_user or None,
-                password=cfg.smtp_password or None,
+                username=smtp_cfg.smtp_user or None,
+                password=smtp_cfg.smtp_password or None,
                 timeout=_SMTP_TIMEOUT,
             )
-            logger.debug("Email sent to %s", cfg.to_addresses)
+            logger.debug("Email sent to %s", smtp_cfg.to_addresses)
         except aiosmtplib.SMTPAuthenticationError as exc:
             logger.error(
                 "SMTP authentication failed for %s@%s:%d — %s",
-                cfg.smtp_user, cfg.smtp_host, cfg.smtp_port, exc,
+                smtp_cfg.smtp_user, smtp_cfg.smtp_host, smtp_cfg.smtp_port, exc,
             )
             raise
         except aiosmtplib.SMTPRecipientsRefused as exc:
             logger.error(
                 "All recipients refused by %s:%d — %s",
-                cfg.smtp_host, cfg.smtp_port, exc,
+                smtp_cfg.smtp_host, smtp_cfg.smtp_port, exc,
             )
             raise
         except aiosmtplib.SMTPResponseException as exc:
             logger.error(
                 "SMTP server %s:%d returned error %d: %s",
-                cfg.smtp_host, cfg.smtp_port, exc.code, exc.message,
+                smtp_cfg.smtp_host, smtp_cfg.smtp_port, exc.code, exc.message,
             )
             raise
         except aiosmtplib.SMTPConnectError as exc:
             logger.error(
                 "Cannot connect to SMTP server %s:%d — %s",
-                cfg.smtp_host, cfg.smtp_port, exc,
+                smtp_cfg.smtp_host, smtp_cfg.smtp_port, exc,
             )
             raise
         except (TimeoutError, aiosmtplib.SMTPTimeoutError) as exc:
             logger.error(
                 "SMTP connection to %s:%d timed out after %ds — %s",
-                cfg.smtp_host, cfg.smtp_port, _SMTP_TIMEOUT, exc,
+                smtp_cfg.smtp_host, smtp_cfg.smtp_port, _SMTP_TIMEOUT, exc,
             )
             raise
         except Exception:
             logger.exception(
                 "Unexpected error sending email via %s:%d",
-                cfg.smtp_host, cfg.smtp_port,
+                smtp_cfg.smtp_host, smtp_cfg.smtp_port,
             )
             raise

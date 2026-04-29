@@ -30,20 +30,20 @@ def _format_deal(
 ) -> str:
     watched = _ansi("33", " [WATCHED]") if deal.is_watched else ""
     header = _ansi("1", f"  {index}. {deal.name}") + watched
-    fp = format_price(deal)
-    if fp.show_strikethrough:
+    price = format_price(deal)
+    if price.show_strikethrough:
         price_line = (
-            f"     {_ansi('9', fp.original_text)}"
-            f" -> {_ansi('32;1', fp.sale_text)}"
-            f"  {_ansi('32', f'({fp.discount_label})')}"
+            f"     {_ansi('9', price.original_text)}"
+            f" -> {_ansi('32;1', price.sale_text)}"
+            f"  {_ansi('32', f'({price.discount_label})')}"
         )
-    elif fp.show_sale_badge:
+    elif price.show_sale_badge:
         price_line = (
-            f"     {_ansi('32;1', fp.sale_text)}"
-            f"  {_ansi('32', f'({fp.discount_label})')}"
+            f"     {_ansi('32;1', price.sale_text)}"
+            f"  {_ansi('32', f'({price.discount_label})')}"
         )
     else:
-        price_line = f"     {fp.sale_text}"
+        price_line = f"     {price.sale_text}"
     lines = [header, price_line]
 
     rating_text = format_rating(deal)
@@ -55,8 +55,10 @@ def _format_deal(
         lines.append(f"     Color: {_ansi('35', ' · '.join(colors))}")
 
     for i, (size, url) in enumerate(zip(deal.available_sizes, deal.product_urls)):
-        v = deal.variant_at(i)
-        stock_text, is_low = format_stock_suffix(v.quantity, v.status, low_stock_threshold)
+        variant = deal.variant_at(i)
+        stock_text, is_low = format_stock_suffix(
+            variant.quantity, variant.status, low_stock_threshold,
+        )
         if stock_text:
             stock_colored = (
                 _ansi("31;1", f"  ({stock_text})") if is_low
@@ -71,8 +73,8 @@ def _format_deal(
         if actions.unwatch_url:
             lines.append(f"     {_ansi('2', f'[Unwatch] {actions.unwatch_url}')}")
         else:
-            for sz, wurl in actions.watch_urls:
-                lines.append(f"     {_ansi('2', f'[Watch {sz}] {wurl}')}")
+            for size_label, watch_url in actions.watch_urls:
+                lines.append(f"     {_ansi('2', f'[Watch {size_label}] {watch_url}')}")
     return "\n".join(lines)
 
 
@@ -117,6 +119,6 @@ class ConsoleNotifier:
         if self._server_url:
             print(_ansi("2", f"  Settings: {self._server_url}/settings"))
         if self._ignored_keywords:
-            kw_text = ", ".join(self._ignored_keywords)
-            print(_ansi("2", f"  Ignored keywords: {kw_text}"))
+            keywords_text = ", ".join(self._ignored_keywords)
+            print(_ansi("2", f"  Ignored keywords: {keywords_text}"))
         print()

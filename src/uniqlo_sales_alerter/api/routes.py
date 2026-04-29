@@ -83,20 +83,20 @@ async def get_sales(
     if gender is not None:
         gender_upper = gender.upper()
         deals = [
-            d for d in deals
-            if d.gender.upper() in (gender_upper, "UNISEX")
+            deal for deal in deals
+            if deal.gender.upper() in (gender_upper, "UNISEX")
         ]
     if min_discount is not None:
-        deals = [d for d in deals if d.discount_percentage >= min_discount]
+        deals = [deal for deal in deals if deal.discount_percentage >= min_discount]
 
-    deal_ids = {d.product_id for d in deals}
+    deal_ids = {deal.product_id for deal in deals}
     return SaleCheckResult(
         checked_at=result.checked_at,
         total_products_scanned=result.total_products_scanned,
         total_on_sale=result.total_on_sale,
         matching_deals=deals,
         new_deals=[
-            d for d in result.new_deals if d.product_id in deal_ids
+            deal for deal in result.new_deals if deal.product_id in deal_ids
         ],
     )
 

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 def _is_watched(product_id: str, watched_ids: set[str]) -> bool:
     """True when *product_id* is on the watch list (prefix match)."""
     pid = product_id.upper()
-    return any(pid.startswith(w) for w in watched_ids)
+    return any(pid.startswith(prefix) for prefix in watched_ids)
 
 
 def _is_excluded(
@@ -44,11 +44,11 @@ def _is_excluded(
     (case-insensitive substring).
     """
     pid = product.product_id.upper()
-    if any(pid.startswith(w) for w in ignored_ids):
+    if any(pid.startswith(prefix) for prefix in ignored_ids):
         return True
     if ignored_keywords:
         name_lower = product.name.lower()
-        if any(kw in name_lower for kw in ignored_keywords):
+        if any(keyword in name_lower for keyword in ignored_keywords):
             return True
     return False
 
@@ -60,8 +60,8 @@ def _matches_gender(product: UniqloProduct, allowed: set[str]) -> bool:
     """
     if not allowed:
         return True
-    cat = product.gender_category.upper()
-    return cat == "UNISEX" or cat in allowed
+    gender = product.gender_category.upper()
+    return gender == "UNISEX" or gender in allowed
 
 
 def _matches_size(product: UniqloProduct, allowed: set[str]) -> bool:
@@ -71,7 +71,7 @@ def _matches_size(product: UniqloProduct, allowed: set[str]) -> bool:
     """
     if not allowed:
         return True
-    return any(s.name.upper() in allowed for s in product.sizes)
+    return any(size.name.upper() in allowed for size in product.sizes)
 
 
 def _meets_discount_threshold(
@@ -100,7 +100,7 @@ def build_size_filter(config: FilterConfig) -> set[str]:
     """Build a single set of all configured size names, normalised to upper case."""
     sizes = config.sizes
     combined = [*sizes.clothing, *sizes.pants, *sizes.shoes]
-    all_names = {n.upper() for n in combined}
+    all_names = {name.upper() for name in combined}
     if sizes.one_size:
         all_names.add("ONE SIZE")
     return all_names
@@ -113,7 +113,7 @@ def matching_sizes(product: UniqloProduct, size_filter: set[str]) -> list[Uniqlo
     """
     if not size_filter:
         return list(product.sizes)
-    return [s for s in product.sizes if s.name.upper() in size_filter]
+    return [size for size in product.sizes if size.name.upper() in size_filter]
 
 
 # ---------------------------------------------------------------------------
@@ -141,13 +141,13 @@ def build_variant_urls(
         colors = product.representative.get("color", {})
         color_code = colors.get("code", "")
         return [
-            build_product_url(base, pid, pg, color_code, s.code, url_style="code")
-            for s in sizes
+            build_product_url(base, pid, pg, color_code, size.code, url_style="code")
+            for size in sizes
         ]
 
     return [
-        build_product_url(base, pid, pg, color, s.display_code)
-        for s in sizes
+        build_product_url(base, pid, pg, color, size.display_code)
+        for size in sizes
     ]
 
 
@@ -174,7 +174,7 @@ def to_sale_item(
     matched = matching_sizes(product, size_filter)
     urls = build_variant_urls(product, matched, config)
 
-    final_sizes = [s.name for s in matched]
+    final_sizes = [size.name for size in matched]
     final_urls = list(urls)
     final_color_names = [""] * len(matched)
 
@@ -182,7 +182,7 @@ def to_sale_item(
         base = config.product_page_base
         pid = product.product_id
         pg = product.price_group
-        code_to_name = {s.display_code: s.name for s in product.sizes}
+        code_to_name = {size.display_code: size.name for size in product.sizes}
         for wv in watched_variants:
             size_name = code_to_name.get(wv.size)
             if size_name is None:
@@ -250,10 +250,10 @@ def apply_filters(
     Adding a new filter: write a predicate function above, then add it
     to the ``if is_watched or (...)`` condition below.
     """
-    cfg = config.filters
-    gender_filter = {g.upper() for g in cfg.gender}
-    size_filter = build_size_filter(cfg)
-    _sale_pids = (
+    filter_cfg = config.filters
+    gender_filter = {gender.upper() for gender in filter_cfg.gender}
+    size_filter = build_size_filter(filter_cfg)
+    sale_pids = (
         sale_product_ids
         if sale_product_ids is not None
         else {p.product_id.upper() for p in products}
@@ -268,14 +268,14 @@ def apply_filters(
 
         has_known_discount = product.is_on_sale
         passes_discount = _meets_discount_threshold(
-            product, cfg.min_sale_percentage, has_known_discount,
+            product, filter_cfg.min_sale_percentage, has_known_discount,
         )
         passes_gender = _matches_gender(product, gender_filter)
         passes_size = _matches_size(product, size_filter)
 
         if watched or (passes_discount and passes_gender and passes_size):
             wv_list = watched_by_product.get(product.product_id.upper(), [])
-            in_sale_feed = product.product_id.upper() in _sale_pids
+            in_sale_feed = product.product_id.upper() in sale_pids
             results.append(
                 to_sale_item(
                     product,
@@ -287,5 +287,5 @@ def apply_filters(
                 ),
             )
 
-    results.sort(key=lambda s: s.discount_percentage, reverse=True)
+    results.sort(key=lambda item: item.discount_percentage, reverse=True)
     return results

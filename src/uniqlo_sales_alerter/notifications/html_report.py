@@ -255,51 +255,53 @@ def _render_card(
         if best_image and first_url else img_inner
     )
 
-    def _size_chip(sz: str, url: str, i: int) -> str:
-        v = deal.variant_at(i)
-        stock_span, is_low = _stock_inline_html(v.quantity, v.status, low_stock_threshold)
-        cls = "size-chip low-stock" if is_low else "size-chip"
-        return f'<a class="{cls}" href="{url}" target="_blank">{sz}{stock_span}</a>'
+    def _size_chip(size_label: str, url: str, i: int) -> str:
+        variant = deal.variant_at(i)
+        stock_span, is_low = _stock_inline_html(
+            variant.quantity, variant.status, low_stock_threshold,
+        )
+        css_class = "size-chip low-stock" if is_low else "size-chip"
+        return f'<a class="{css_class}" href="{url}" target="_blank">{size_label}{stock_span}</a>'
 
     actions = DealActions(deal, server_url)
     if actions.unwatch_url:
         size_parts = [
-            _size_chip(sz, url, i)
-            for i, (sz, url) in enumerate(
+            _size_chip(size_label, url, i)
+            for i, (size_label, url) in enumerate(
                 zip(deal.available_sizes, deal.product_urls),
             )
         ]
     else:
         watch_map = dict(actions.watch_urls)
         size_parts = []
-        for i, (sz, url) in enumerate(
+        for i, (size_label, url) in enumerate(
             zip(deal.available_sizes, deal.product_urls),
         ):
-            chip = _size_chip(sz, url, i)
-            wurl = watch_map.get(sz)
-            if wurl:
+            chip = _size_chip(size_label, url, i)
+            watch_url = watch_map.get(size_label)
+            if watch_url:
                 chip += (
-                    f'<a class="watch-chip" href="{wurl}" '
-                    f'target="_blank" title="Watch {sz}">&#9734;</a>'
+                    f'<a class="watch-chip" href="{watch_url}" '
+                    f'target="_blank" title="Watch {size_label}">&#9734;</a>'
                 )
             size_parts.append(chip)
     size_links = " ".join(size_parts) or ", ".join(deal.available_sizes)
 
-    fp = format_price(deal)
-    if fp.show_strikethrough:
+    price = format_price(deal)
+    if price.show_strikethrough:
         price_row = (
-            f'<span class="price-old">{fp.original_text}</span>'
+            f'<span class="price-old">{price.original_text}</span>'
             f'<span class="arrow">&rarr;</span>'
-            f'<span class="price-sale">{fp.sale_text}</span>'
-            f'<span class="discount">{fp.discount_label}</span>'
+            f'<span class="price-sale">{price.sale_text}</span>'
+            f'<span class="discount">{price.discount_label}</span>'
         )
-    elif fp.show_sale_badge:
+    elif price.show_sale_badge:
         price_row = (
-            f'<span class="price-sale">{fp.sale_text}</span>'
-            f'<span class="discount">{fp.discount_label}</span>'
+            f'<span class="price-sale">{price.sale_text}</span>'
+            f'<span class="discount">{price.discount_label}</span>'
         )
     else:
-        price_row = f'<span class="price-sale">{fp.sale_text}</span>'
+        price_row = f'<span class="price-sale">{price.sale_text}</span>'
 
     action_row = ""
     if actions.ignore_url:
@@ -367,7 +369,7 @@ def _build_report(
     )
     kw_line = ""
     if ignored_keywords:
-        escaped = ", ".join(html_mod.escape(k) for k in ignored_keywords)
+        escaped = ", ".join(html_mod.escape(keyword) for keyword in ignored_keywords)
         kw_line = f"<br/>Ignored keywords: {escaped}"
     return f"""<!DOCTYPE html>
 <html lang="en">
